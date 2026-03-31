@@ -9,6 +9,9 @@ public class AuthService {
     @Value("${app.admin.username:admin}")
     private String adminUsername;
 
+    @Value("${app.admin.email:admin@system}")
+    private String adminEmail;
+
     @Value("${app.admin.password:root}")
     private String adminPassword;
 
@@ -16,7 +19,17 @@ public class AuthService {
     private String adminToken;
 
     public String authenticateAdmin(String username, String password) {
-        if (adminUsername.equals(username) && adminPassword.equals(password)) {
+        String normalizedInputUser = username == null ? "" : username.trim();
+        String normalizedInputPassword = password == null ? "" : password.trim();
+        String normalizedAdminUsername = adminUsername == null ? "" : adminUsername.trim();
+        String normalizedAdminEmail = adminEmail == null ? "" : adminEmail.trim();
+        String normalizedAdminPassword = adminPassword == null ? "" : adminPassword.trim();
+
+        boolean usernameMatches = normalizedAdminUsername.equalsIgnoreCase(normalizedInputUser)
+                || normalizedAdminEmail.equalsIgnoreCase(normalizedInputUser);
+        boolean passwordMatches = normalizedAdminPassword.equals(normalizedInputPassword);
+
+        if (usernameMatches && passwordMatches) {
             return adminToken;
         }
         return null;

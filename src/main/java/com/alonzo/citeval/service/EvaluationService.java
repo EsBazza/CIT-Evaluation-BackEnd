@@ -72,8 +72,15 @@ public class EvaluationService {
         return mapToResponseDTO(saved);
     }
 
-    public List<EvaluationResponseDTO> getAllEvaluations() {
-        return evaluationRepository.findAll().stream()
+    public List<EvaluationResponseDTO> getAllEvaluations(String facultyEmail) {
+        List<Evaluation> evaluations;
+        if (facultyEmail != null && !facultyEmail.isBlank()) {
+            evaluations = evaluationRepository.findByFacultyEmail(facultyEmail.trim());
+        } else {
+            evaluations = evaluationRepository.findAll();
+        }
+
+        return evaluations.stream()
                 .map(this::mapToResponseDTO)
                 .collect(Collectors.toList());
     }

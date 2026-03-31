@@ -27,8 +27,8 @@ public class EvaluationController {
     }
 
     @GetMapping
-    public List<EvaluationResponseDTO> getAll() {
-        return evaluationService.getAllEvaluations();
+    public List<EvaluationResponseDTO> getAll(@RequestParam(required = false) String facultyEmail) {
+        return evaluationService.getAllEvaluations(facultyEmail);
     }
 
     @GetMapping("/{id}/decrypt")
