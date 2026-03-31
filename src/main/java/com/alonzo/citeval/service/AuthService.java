@@ -1,0 +1,24 @@
+package com.alonzo.citeval.service;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+@Service
+public class AuthService {
+
+    @Value("${app.admin.username:admin}")
+    private String adminUsername;
+
+    @Value("${app.admin.password:root}")
+    private String adminPassword;
+
+    @Value("${app.admin.token:CIT-EVAL-ADMIN-SECRET-2024}")
+    private String adminToken;
+
+    public String authenticateAdmin(String username, String password) {
+        if (adminUsername.equals(username) && adminPassword.equals(password)) {
+            return adminToken;
+        }
+        return null;
+    }
+}
