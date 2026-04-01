@@ -11,6 +11,6 @@ import java.util.List;
 @Repository
 public interface EvaluationRepository extends JpaRepository<Evaluation, Long> {
 
-    boolean existsByStudentNumberAndFacultyEmail(String studentNumber, String facultyEmail);
+    boolean existsByStudentNumberAndFacultyEmailAndSection(String studentNumber, String facultyEmail, String section);
     List<Evaluation> findByFacultyEmail(String facultyEmail);
 }

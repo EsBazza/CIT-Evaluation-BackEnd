@@ -8,7 +8,6 @@ public record EvaluationResponseDTO(
     String studentEmail,
     String facultyEmail,
     String section,
-    double rating,
     String ciphertext,
     String studentPublicKey,
     String iv,

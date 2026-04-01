@@ -33,23 +33,47 @@ public class EvaluationService {
     private final EvaluationRepository evaluationRepository;
     private final CriterionRepository criterionRepository;
     private final KeyService keyService;
+    private final ProfessorService professorService;
 
     public EvaluationService(EvaluationRepository evaluationRepository,
                              CriterionRepository criterionRepository,
-                             KeyService keyService) {
+                             KeyService keyService,
+                             ProfessorService professorService) {
         this.evaluationRepository = evaluationRepository;
         this.criterionRepository = criterionRepository;
         this.keyService = keyService;
+        this.professorService = professorService;
     }
 
     @Transactional
     public EvaluationResponseDTO submitEvaluation(EvaluationRequestDTO req) {
+        String normalizedSection = req.section().trim().toUpperCase();
+        String normalizedStudentNumber = req.studentNumber().trim();
+        String normalizedFacultyEmail = req.facultyEmail().trim();
+
+        if (evaluationRepository.existsByStudentNumberAndFacultyEmailAndSection(
+            normalizedStudentNumber,
+            normalizedFacultyEmail,
+            normalizedSection
+        )) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Duplicate submission detected. You already evaluated this faculty for section " + normalizedSection
+            );
+        }
+
+        if (!professorService.isFacultyAllowedForSection(req.facultyEmail(), normalizedSection)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Selected faculty member is not assigned to section " + normalizedSection
+            );
+        }
+
         Evaluation eval = new Evaluation();
-        eval.setStudentNumber(req.studentNumber());
-        eval.setFacultyEmail(req.facultyEmail());
-        eval.setSection(req.section());
-        eval.setRating(req.rating());
-        eval.setStudentEmail(req.studentEmail());
+        eval.setStudentNumber(normalizedStudentNumber);
+        eval.setFacultyEmail(normalizedFacultyEmail);
+        eval.setSection(normalizedSection);
+        eval.setStudentEmail(req.studentEmail().trim());
         eval.setCiphertext(req.ciphertext());
         eval.setStudentPublicKey(req.studentPublicKey());
         eval.setIv(req.iv());
@@ -134,7 +158,6 @@ public class EvaluationService {
                 eval.getStudentEmail(),
                 eval.getFacultyEmail(),
                 eval.getSection(),
-                eval.getRating(),
                 eval.getCiphertext(),
                 eval.getStudentPublicKey(),
                 eval.getIv(),

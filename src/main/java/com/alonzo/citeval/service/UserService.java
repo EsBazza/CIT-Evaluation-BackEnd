@@ -4,9 +4,17 @@ import com.alonzo.citeval.model.dto.UserDTO;
 import com.alonzo.citeval.model.dto.UserSyncRequestDTO;
 import com.alonzo.citeval.model.entity.User;
 import com.alonzo.citeval.repository.UserRepository;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
+import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.json.gson.GsonFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -14,6 +22,9 @@ import java.util.stream.Collectors;
 public class UserService {
 
     private final UserRepository userRepository;
+    
+    @Value("${app.google.client-id:}")
+    private String googleClientId;
 
     public UserService(UserRepository userRepository) {
         this.userRepository = userRepository;
@@ -21,23 +32,46 @@ public class UserService {
 
     @Transactional
     public UserDTO syncUser(UserSyncRequestDTO request) {
-        User user = userRepository.findByEmail(request.email())
-                .map(existingUser -> {
-                    existingUser.setName(request.name());
-                    existingUser.setOauthProvider(request.oauthProvider());
-                    existingUser.setOauthSubject(request.oauthSubject());
-                    return userRepository.save(existingUser);
-                })
-                .orElseGet(() -> {
-                    User newUser = new User();
-                    newUser.setEmail(request.email());
-                    newUser.setName(request.name());
-                    newUser.setOauthProvider(request.oauthProvider());
-                    newUser.setOauthSubject(request.oauthSubject());
-                    newUser.setRole(request.role() != null ? request.role() : "STUDENT");
-                    return userRepository.save(newUser);
-                });
-        return mapToDTO(user);
+        // Task 2: Verify Google ID Token instead of trusting JSON
+        GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(new NetHttpTransport(), new GsonFactory())
+                .setAudience(Collections.singletonList(googleClientId))
+                .build();
+
+        try {
+            GoogleIdToken idToken = verifier.verify(request.idToken());
+            if (idToken == null) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Google Token");
+            }
+
+            GoogleIdToken.Payload payload = idToken.getPayload();
+            String email = payload.getEmail();
+            String name = (String) payload.get("name");
+            String subject = payload.getSubject();
+
+            // Role logic: Only trust backend logic, not frontend input
+            String role = email.endsWith("@ua.edu.ph") ? 
+                (email.contains("faculty") || email.contains("prof") ? "FACULTY" : "STUDENT") : "GUEST";
+
+            User user = userRepository.findByEmail(email)
+                    .map(existingUser -> {
+                        existingUser.setName(name);
+                        existingUser.setOauthSubject(subject);
+                        return userRepository.save(existingUser);
+                    })
+                    .orElseGet(() -> {
+                        User newUser = new User();
+                        newUser.setEmail(email);
+                        newUser.setName(name);
+                        newUser.setOauthProvider("google");
+                        newUser.setOauthSubject(subject);
+                        newUser.setRole(role);
+                        return userRepository.save(newUser);
+                    });
+            return mapToDTO(user);
+
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication failed", e);
+        }
     }
 
     public List<UserDTO> getAllUsers() {
@@ -47,12 +81,6 @@ public class UserService {
     }
 
     private UserDTO mapToDTO(User user) {
-        return new UserDTO(
-                user.getId(),
-                user.getEmail(),
-                user.getName(),
-                user.getRole(),
-                user.isEnabled()
-        );
+        return new UserDTO(user.getId(), user.getEmail(), user.getName(), user.getRole(), user.isEnabled());
     }
 }

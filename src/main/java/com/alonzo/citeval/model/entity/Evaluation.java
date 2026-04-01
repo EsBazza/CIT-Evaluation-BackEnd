@@ -15,7 +15,6 @@ public class Evaluation {
 
     private String facultyEmail;
     private String section;
-    private double rating;
     private String studentNumber;
     @Column(name = "student_email", columnDefinition = "citext")
     private String studentEmail;
@@ -42,9 +41,6 @@ public class Evaluation {
 
     public String getSection() { return section; }
     public void setSection(String section) { this.section = section; }
-
-    public double getRating() { return rating; }
-    public void setRating(double rating) { this.rating = rating; }
 
     public String getStudentNumber() { return studentNumber; }
     public void setStudentNumber(String studentNumber) { this.studentNumber = studentNumber; }

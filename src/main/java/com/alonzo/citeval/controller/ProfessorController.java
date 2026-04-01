@@ -2,6 +2,7 @@ package com.alonzo.citeval.controller;
 
 import com.alonzo.citeval.repository.ProfessorRepository;
 import com.alonzo.citeval.model.entity.Professor;
+import com.alonzo.citeval.service.ProfessorService;
 
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
@@ -12,16 +13,18 @@ import java.util.List;
 public class ProfessorController {
 
     private final ProfessorRepository professorRepository;
+    private final ProfessorService professorService;
 
-    public ProfessorController(ProfessorRepository professorRepository) {
+    public ProfessorController(ProfessorRepository professorRepository, ProfessorService professorService) {
         this.professorRepository = professorRepository;
+        this.professorService = professorService;
     }
 
     // --- PUBLIC ENDPOINTS (Fixes the 404s) ---
 
     @GetMapping("/public/professors")
-    public List<Professor> getPublicProfessors() {
-        return professorRepository.findAll();
+    public List<Professor> getPublicProfessors(@RequestParam(required = false) String section) {
+        return professorService.getPublicProfessors(section);
     }
 
     // --- ADMIN ENDPOINTS (Matches your adminApi.js) ---

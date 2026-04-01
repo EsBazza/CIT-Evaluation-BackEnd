@@ -15,7 +15,14 @@ public class Professor {
     @Column(nullable = false, unique = true)
     private String email;
 
-    private String department;
+    @Column(name = "role")
+    private String role;
+
+    @Column(name = "department", insertable = false, updatable = false)
+    private String legacyDepartment;
+
+    @Column(name = "assigned_sections")
+    private String assignedSections;
 
     private boolean isActive = true;
 
@@ -32,8 +39,16 @@ public class Professor {
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
 
-    public String getDepartment() { return department; }
-    public void setDepartment(String department) { this.department = department; }
+    public String getRole() {
+        if (role != null && !role.isBlank()) {
+            return role;
+        }
+        return legacyDepartment;
+    }
+    public void setRole(String role) { this.role = role; }
+
+    public String getAssignedSections() { return assignedSections; }
+    public void setAssignedSections(String assignedSections) { this.assignedSections = assignedSections; }
 
     public boolean isActive() { return isActive; }
     public void setActive(boolean active) { isActive = active; }
