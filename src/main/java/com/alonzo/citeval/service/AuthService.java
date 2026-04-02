@@ -8,7 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
+import java.security.MessageDigest;
 import java.security.Key;
 import java.util.Date;
 
@@ -34,16 +34,13 @@ public class AuthService {
             throw new IllegalStateException("APP_JWT_SECRET is required for production deployment");
         }
 
-        String candidate = jwtSecret.trim();
-        byte[] secretBytes;
-
         try {
-            secretBytes = Base64.getDecoder().decode(candidate);
-        } catch (IllegalArgumentException ex) {
-            secretBytes = candidate.getBytes(StandardCharsets.UTF_8);
+            byte[] secretBytes = jwtSecret.trim().getBytes(StandardCharsets.UTF_8);
+            byte[] keyBytes = MessageDigest.getInstance("SHA-256").digest(secretBytes);
+            this.signingKey = Keys.hmacShaKeyFor(keyBytes);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to initialize JWT signing key", ex);
         }
-
-        this.signingKey = Keys.hmacShaKeyFor(secretBytes);
     }
 
     public String authenticateAdmin(String username, String password) {
