@@ -34,3 +34,7 @@ build/
 
 .gemini/
 gha-creds-*.json
+
+# Runtime-generated ECDH server keys
+server_private.key
+server_public.key

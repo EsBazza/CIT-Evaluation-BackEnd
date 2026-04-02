@@ -8,7 +8,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api") // Changed to base /api to allow both admin and public paths
-@CrossOrigin(origins = "http://localhost:5173")
 public class CriterionController {
 
     private final CriterionRepository criterionRepository;

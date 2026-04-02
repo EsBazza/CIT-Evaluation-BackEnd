@@ -9,7 +9,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api") // Base mapping changed to /api
-@CrossOrigin(origins = "http://localhost:5173")
 public class ProfessorController {
 
     private final ProfessorRepository professorRepository;
