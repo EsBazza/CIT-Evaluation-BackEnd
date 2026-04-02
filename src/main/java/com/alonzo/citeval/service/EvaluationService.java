@@ -96,6 +96,7 @@ public class EvaluationService {
         return mapToResponseDTO(saved);
     }
 
+    @Transactional(readOnly = true)
     public List<EvaluationResponseDTO> getAllEvaluations(String facultyEmail) {
         List<Evaluation> evaluations;
         if (facultyEmail != null && !facultyEmail.isBlank()) {
@@ -109,6 +110,7 @@ public class EvaluationService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public EvaluationResponseDTO getEvaluationById(Long id) {
         return evaluationRepository.findById(id)
                 .map(this::mapToResponseDTO)
