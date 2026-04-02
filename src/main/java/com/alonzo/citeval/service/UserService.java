@@ -47,15 +47,14 @@ public class UserService {
             String email = payload.getEmail();
             String name = (String) payload.get("name");
             String subject = payload.getSubject();
-
-            // Role logic: Only trust backend logic, not frontend input
-            String role = email.endsWith("@ua.edu.ph") ? 
-                (email.contains("faculty") || email.contains("prof") ? "FACULTY" : "STUDENT") : "GUEST";
+            String role = determineRoleForEmail(email);
 
             User user = userRepository.findByEmail(email)
                     .map(existingUser -> {
                         existingUser.setName(name);
                         existingUser.setOauthSubject(subject);
+                        existingUser.setOauthProvider("google");
+                        existingUser.setRole(role);
                         return userRepository.save(existingUser);
                     })
                     .orElseGet(() -> {
@@ -82,5 +81,16 @@ public class UserService {
 
     private UserDTO mapToDTO(User user) {
         return new UserDTO(user.getId(), user.getEmail(), user.getName(), user.getRole(), user.isEnabled());
+    }
+
+    static String determineRoleForEmail(String email) {
+        String normalizedEmail = email == null ? "" : email.trim().toLowerCase();
+        if (normalizedEmail.endsWith(".student@ua.edu.ph")) {
+            return "STUDENT";
+        }
+        if (normalizedEmail.endsWith("@ua.edu.ph")) {
+            return "FACULTY";
+        }
+        return "GUEST";
     }
 }
