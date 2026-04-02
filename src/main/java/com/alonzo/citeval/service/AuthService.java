@@ -7,6 +7,8 @@ import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.security.Key;
 import java.util.Date;
 
@@ -19,9 +21,30 @@ public class AuthService {
     @Value("${app.admin.password:root}")
     private String adminPassword;
 
-    // Standard JWT Secret Key (generated securely for demo)
-    private final Key signingKey = Keys.secretKeyFor(SignatureAlgorithm.HS256);
+    @Value("${app.jwt.secret:}")
+    private String jwtSecret;
+
     private final long expirationTimeMs = 86400000; // 24 hours
+
+    private Key signingKey;
+
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        if (jwtSecret == null || jwtSecret.trim().isEmpty()) {
+            throw new IllegalStateException("APP_JWT_SECRET is required for production deployment");
+        }
+
+        String candidate = jwtSecret.trim();
+        byte[] secretBytes;
+
+        try {
+            secretBytes = Base64.getDecoder().decode(candidate);
+        } catch (IllegalArgumentException ex) {
+            secretBytes = candidate.getBytes(StandardCharsets.UTF_8);
+        }
+
+        this.signingKey = Keys.hmacShaKeyFor(secretBytes);
+    }
 
     public String authenticateAdmin(String username, String password) {
         if (adminUsername.equals(username) && adminPassword.equals(password)) {
