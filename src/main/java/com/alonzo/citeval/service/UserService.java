@@ -23,7 +23,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     
-    @Value("${app.google.client-id:}")
+    @Value("${spring.security.oauth2.client.registration.google.client-id:}")
     private String googleClientId;
 
     public UserService(UserRepository userRepository) {
