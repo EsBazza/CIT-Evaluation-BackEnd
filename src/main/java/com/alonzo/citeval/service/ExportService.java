@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -46,15 +47,17 @@ public class ExportService {
         this.evaluationService = evaluationService;
     }
 
+    // =========================================================
+    // EXISTING EXPORTS (FACULTY/PROFESSOR) - UNCHANGED OUTPUT
+    // =========================================================
+
     public byte[] exportAllToCsv() {
-        List<Evaluation> evaluations = evaluationRepository.findAllWithScores();
-        return generateCsvBytes(evaluations);
+        return exportAdminDashboardOverallToCsv("ALL");
     }
 
     public byte[] exportAllToPdf() {
-        List<Evaluation> evaluations = evaluationRepository.findAllWithScores();
-        // Admin export: do not withhold here unless you explicitly want to.
-        return generatePdfBytes("All Evaluations Report", evaluations);
+        // Keeps your existing "report-style" layout.
+        return exportAdminDashboardOverallToPdf("ALL");
     }
 
     public byte[] exportFacultyToCsv(String facultyEmail) {
@@ -69,28 +72,157 @@ public class ExportService {
     }
 
     public byte[] exportEvaluationToCsv(Long evaluationId) {
-        // Single evaluation exports are inherently identifying; keep as-is, or remove this endpoint for faculty.
         Evaluation evaluation = findEvaluationWithScores(evaluationId);
         return generateCsvBytes(List.of(evaluation));
     }
 
     public byte[] exportEvaluationToPdf(Long evaluationId) {
-        // Single evaluation exports are inherently identifying; keep as-is, or remove this endpoint for faculty.
         Evaluation evaluation = findEvaluationWithScores(evaluationId);
         return generatePdfBytes("Evaluation Detail Report: #" + evaluationId, List.of(evaluation));
     }
 
     public byte[] exportProfessorToCsv(Long professorId) {
         Professor professor = findProfessor(professorId);
-        List<Evaluation> evaluations = evaluationRepository.findByFacultyEmailWithScores(normalizeRequiredEmail(professor.getEmail()));
+        List<Evaluation> evaluations = evaluationRepository.findByFacultyEmailWithScores(
+                normalizeRequiredEmail(professor.getEmail())
+        );
         return generateCsvBytes(evaluations);
     }
 
     public byte[] exportProfessorToPdf(Long professorId) {
         Professor professor = findProfessor(professorId);
-        List<Evaluation> evaluations = evaluationRepository.findByFacultyEmailWithScores(normalizeRequiredEmail(professor.getEmail()));
+        List<Evaluation> evaluations = evaluationRepository.findByFacultyEmailWithScores(
+                normalizeRequiredEmail(professor.getEmail())
+        );
         return generatePdfBytes("Professor Evaluation Report: " + safe(professor.getName()), evaluations);
     }
+
+    // =========================================================
+    // ADMIN DASHBOARD EXPORTS (NEW) - DIFFERENT LAYOUT + CONTENT
+    // =========================================================
+
+    /**
+     * Admin: Overall Evaluation Insights PDF (dashboard-based content).
+     * @param sectionOrNull "ALL" or null => all sections, otherwise filter by section (e.g., "3-A")
+     */
+    public byte[] exportAdminDashboardOverallToPdf(String sectionOrNull) {
+        List<Evaluation> evaluations = evaluationRepository.findAllWithScores();
+        List<Evaluation> filtered = filterBySectionIfProvided(evaluations, sectionOrNull);
+
+        AdminDashboardMetrics metrics = computeAdminDashboardMetrics(filtered, sectionOrNull);
+
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Document document = new Document(PageSize.A4); // portrait like your screenshot
+            PdfWriter.getInstance(document, out);
+            document.open();
+
+            Font titleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16);
+            Font sectionFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12);
+            Font normalFont = FontFactory.getFont(FontFactory.HELVETICA, 10);
+
+            document.add(new Paragraph("Overall Evaluation Insights", titleFont));
+            document.add(new Paragraph("Generated on: " + OffsetDateTime.now(), normalFont));
+            document.add(new Paragraph("Section: " + metrics.sectionLabel, normalFont));
+            document.add(new Paragraph(" "));
+
+            document.add(new Paragraph("Summary", sectionFont));
+            document.add(new Paragraph("Submissions: " + metrics.submissions, normalFont));
+
+            // both averages (as requested)
+            document.add(new Paragraph(String.format(Locale.ROOT,
+                    "Average Score (all criteria): %.2f / 10", metrics.avgAllCriteria), normalFont));
+            document.add(new Paragraph(String.format(Locale.ROOT,
+                    "Performance Score (avg per evaluation): %.2f / 10", metrics.avgPerEvaluation), normalFont));
+
+            document.add(new Paragraph("Ranked Teachers: " + metrics.rankedTeachers, normalFont));
+            document.add(new Paragraph(
+                    String.format(Locale.ROOT, "Best Teacher: %s (%.2f)",
+                            safe(metrics.bestTeacherName),
+                            metrics.bestTeacherScore),
+                    normalFont
+            ));
+            document.add(new Paragraph(" "));
+
+            document.add(new Paragraph("Faculty Ranking (Top 10)", sectionFont));
+
+            PdfPTable rankingTable = new PdfPTable(4);
+            rankingTable.setWidthPercentage(100);
+            rankingTable.setWidths(new float[]{0.8f, 3.0f, 1.2f, 1.4f});
+
+            rankingTable.addCell("Rank");
+            rankingTable.addCell("Professor");
+            rankingTable.addCell("Responses");
+            rankingTable.addCell("Avg Score");
+
+            int rank = 1;
+            for (TeacherRankRow row : metrics.rankingTop10) {
+                rankingTable.addCell(String.valueOf(rank));
+                rankingTable.addCell(safe(row.professorName));
+                rankingTable.addCell(String.valueOf(row.responses));
+                rankingTable.addCell(String.format(Locale.ROOT, "%.2f", row.avgScore));
+                rank++;
+            }
+
+            document.add(rankingTable);
+
+            document.close();
+            return out.toByteArray();
+        } catch (Exception ex) {
+            throw new RuntimeException("Failed to export Admin Dashboard PDF", ex);
+        }
+    }
+
+    /**
+     * Admin: Overall Evaluation Insights CSV (dashboard-based content).
+     * @param sectionOrNull "ALL" or null => all sections, otherwise filter by section
+     */
+    public byte[] exportAdminDashboardOverallToCsv(String sectionOrNull) {
+        List<Evaluation> evaluations = evaluationRepository.findAllWithScores();
+        List<Evaluation> filtered = filterBySectionIfProvided(evaluations, sectionOrNull);
+
+        AdminDashboardMetrics metrics = computeAdminDashboardMetrics(filtered, sectionOrNull);
+
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+
+            // Add UTF-8 BOM so Excel detects encoding correctly
+            out.write(0xEF);
+            out.write(0xBB);
+            out.write(0xBF);
+
+            try (CSVWriter writer = new CSVWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8))) {
+                writer.writeNext(new String[]{"Overall Evaluation Insights"});
+                writer.writeNext(new String[]{"Generated on", OffsetDateTime.now().toString()});
+                writer.writeNext(new String[]{"Section", metrics.sectionLabel});
+                writer.writeNext(new String[]{"Submissions", String.valueOf(metrics.submissions)});
+                writer.writeNext(new String[]{"Average Score (all criteria)", String.format(Locale.ROOT, "%.2f", metrics.avgAllCriteria)});
+                writer.writeNext(new String[]{"Performance Score (avg per evaluation)", String.format(Locale.ROOT, "%.2f", metrics.avgPerEvaluation)});
+                writer.writeNext(new String[]{"Ranked Teachers", String.valueOf(metrics.rankedTeachers)});
+                writer.writeNext(new String[]{"Best Teacher", safe(metrics.bestTeacherName)});
+                writer.writeNext(new String[]{"Best Teacher Score", String.format(Locale.ROOT, "%.2f", metrics.bestTeacherScore)});
+                writer.writeNext(new String[]{}); // blank row
+
+                writer.writeNext(new String[]{"Rank", "Professor", "Responses", "Avg Score"});
+                int rank = 1;
+                for (TeacherRankRow row : metrics.rankingTop10) {
+                    writer.writeNext(new String[]{
+                            String.valueOf(rank),
+                            safe(row.professorName),
+                            String.valueOf(row.responses),
+                            String.format(Locale.ROOT, "%.2f", row.avgScore)
+                    });
+                    rank++;
+                }
+            }
+
+            return out.toByteArray();
+        } catch (Exception ex) {
+            throw new RuntimeException("Failed to export Admin Dashboard CSV", ex);
+        }
+    }
+
+    // =========================================================
+    // EXISTING PRIVATE HELPERS
+    // =========================================================
 
     private List<Evaluation> loadFacultyEvaluations(String facultyEmail) {
         String normalized = normalizeRequiredEmail(facultyEmail);
@@ -108,12 +240,7 @@ public class ExportService {
     }
 
     /**
-     * Faculty-facing / professor-facing CSV export:
-     * - No student identifiers
-     * - No timestamps
-     * - No DB ids (use Response 1..N)
-     * - Includes section + scrubbed feedback + scores summary
-     * - Rows randomized to reduce correlation risk
+     * Faculty-facing / professor-facing CSV export (UNCHANGED).
      */
     private byte[] generateCsvBytes(List<Evaluation> evaluations) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -147,12 +274,7 @@ public class ExportService {
     }
 
     /**
-     * Faculty-facing / professor-facing PDF export (report-style):
-     * - Title + generated time + response count
-     * - Overall performance score (avg of per-evaluation averages)
-     * - Per-criterion aggregated stats: mean, median, std dev
-     * - Randomized, anonymized comments
-     * - No student identifiers
+     * Faculty-facing / professor-facing PDF export (UNCHANGED).
      */
     private byte[] generatePdfBytes(String title, List<Evaluation> evaluations) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
@@ -166,19 +288,16 @@ public class ExportService {
 
             List<Evaluation> safeEvals = evaluations == null ? List.of() : evaluations;
 
-            // Header
             document.add(new Paragraph(title, titleFont));
             document.add(new Paragraph("Generated on: " + OffsetDateTime.now(), normalFont));
             document.add(new Paragraph("Responses: " + safeEvals.size(), normalFont));
             document.add(new Paragraph(" "));
 
-            // Overall performance score (avg of per-evaluation averages)
             double overall = safeEvals.stream().mapToDouble(this::overallAverageScore).average().orElse(0.0);
             document.add(new Paragraph("Performance Score", sectionFont));
             document.add(new Paragraph(String.format(Locale.ROOT, "%.2f / 10", overall), normalFont));
             document.add(new Paragraph(" "));
 
-            // Per-criterion aggregated stats (mean/median/stddev)
             document.add(new Paragraph("Aggregated Quantitative Scores (per criterion)", sectionFont));
 
             Map<String, List<Double>> byCriterion = new LinkedHashMap<>();
@@ -186,7 +305,7 @@ public class ExportService {
                 if (e.getScores() == null) continue;
                 for (EvaluationScore s : e.getScores()) {
                     String key = criterionTitle(s);
-                    double val = (s == null) ? 0.0 : (double) s.getScore();;
+                    double val = (s == null) ? 0.0 : (double) s.getScore();
                     byCriterion.computeIfAbsent(key, k -> new ArrayList<>()).add(val);
                 }
             }
@@ -213,7 +332,6 @@ public class ExportService {
             document.add(statsTable);
             document.add(new Paragraph(" "));
 
-            // Randomized comment list
             document.add(new Paragraph("Detailed Student Feedback (randomized)", sectionFont));
 
             List<Evaluation> randomized = new ArrayList<>(safeEvals);
@@ -260,7 +378,7 @@ public class ExportService {
         double mean = values.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
         double variance = values.stream()
                 .mapToDouble(v -> (v - mean) * (v - mean))
-                .sum() / (values.size() - 1); // sample std dev
+                .sum() / (values.size() - 1);
         return Math.sqrt(variance);
     }
 
@@ -277,24 +395,13 @@ public class ExportService {
         }
     }
 
-    /**
-     * Basic PII scrubbing to protect anonymity if a student types names/emails/ids in feedback.
-     * This is heuristic-based; for strong guarantees, consider an NLP redaction library/service.
-     */
     private String redactPii(String text) {
         if (text == null) return "";
 
         String redacted = text;
-
-        // email addresses
         redacted = redacted.replaceAll("(?i)[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}", "[REDACTED_EMAIL]");
-
-        // long digit sequences (student numbers / phones / IDs)
         redacted = redacted.replaceAll("\\b\\d{6,}\\b", "[REDACTED_NUMBER]");
-
-        // crude "my name is X" pattern
         redacted = redacted.replaceAll("(?i)\\bmy\\s+name\\s+is\\s+[A-Z][a-z]+\\b", "my name is [REDACTED_NAME]");
-
         return redacted;
     }
 
@@ -325,5 +432,174 @@ public class ExportService {
 
     private String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    // =========================================================
+    // ADMIN DASHBOARD METRICS - PRIVATE HELPERS (NEW)
+    // =========================================================
+
+    private List<Evaluation> filterBySectionIfProvided(List<Evaluation> evals, String sectionOrNull) {
+        if (evals == null) return List.of();
+        if (sectionOrNull == null || sectionOrNull.isBlank() || "ALL".equalsIgnoreCase(sectionOrNull.trim())) {
+            return evals;
+        }
+        String sec = sectionOrNull.trim().toUpperCase(Locale.ROOT);
+        return evals.stream()
+                .filter(e -> e != null
+                        && e.getSection() != null
+                        && e.getSection().trim().toUpperCase(Locale.ROOT).equals(sec))
+                .toList();
+    }
+
+    private AdminDashboardMetrics computeAdminDashboardMetrics(List<Evaluation> evals, String sectionOrNull) {
+        List<Evaluation> safe = evals == null ? List.of() : evals;
+
+        int submissions = safe.size();
+
+        // A) dashboard avg (flattened across all criterion scores)
+        double avgAllCriteria = overallDashboardAverageScore(safe);
+
+        // B) avg of per-evaluation averages
+        double avgPerEvaluation = safe.stream().mapToDouble(this::overallAverageScore).average().orElse(0.0);
+
+        // facultyEmail -> accumulator
+        Map<String, TeacherAccumulator> acc = new LinkedHashMap<>();
+        for (Evaluation e : safe) {
+            if (e == null) continue;
+            String facultyEmail = e.getFacultyEmail();
+            if (facultyEmail == null || facultyEmail.isBlank()) continue;
+
+            String normalizedEmail = facultyEmail.trim().toLowerCase(Locale.ROOT);
+            TeacherAccumulator t = acc.computeIfAbsent(normalizedEmail, k -> new TeacherAccumulator());
+
+            t.responses++;
+
+            if (e.getScores() != null) {
+                for (EvaluationScore s : e.getScores()) {
+                    if (s == null) continue;
+                    t.sum += (double) s.getScore();
+                    t.count++;
+                }
+            }
+        }
+
+        Map<String, String> emailToName = resolveProfessorNames(acc.keySet());
+
+        List<TeacherRankRow> rankingAll = acc.entrySet().stream()
+                .map(entry -> {
+                    String email = entry.getKey();
+                    TeacherAccumulator t = entry.getValue();
+                    double avg = t.count == 0 ? 0.0 : (t.sum / t.count);
+                    String name = emailToName.getOrDefault(email, email);
+                    return new TeacherRankRow(email, name, t.responses, avg);
+                })
+                .sorted(Comparator.comparingDouble((TeacherRankRow r) -> r.avgScore).reversed())
+                .toList();
+
+        int rankedTeachers = rankingAll.size();
+
+        List<TeacherRankRow> rankingTop10 = rankingAll.stream().limit(10).toList();
+
+        String bestTeacherName = rankingTop10.isEmpty() ? "N/A" : rankingTop10.get(0).professorName;
+        double bestTeacherScore = rankingTop10.isEmpty() ? 0.0 : rankingTop10.get(0).avgScore;
+
+        String sectionLabel =
+                (sectionOrNull == null || sectionOrNull.isBlank() || "ALL".equalsIgnoreCase(sectionOrNull.trim()))
+                        ? "All Sections"
+                        : sectionOrNull.trim().toUpperCase(Locale.ROOT);
+
+        return new AdminDashboardMetrics(
+                sectionLabel,
+                submissions,
+                avgAllCriteria,
+                avgPerEvaluation,
+                rankedTeachers,
+                bestTeacherName,
+                bestTeacherScore,
+                rankingTop10
+        );
+    }
+
+    private double overallDashboardAverageScore(List<Evaluation> evals) {
+        if (evals == null || evals.isEmpty()) return 0.0;
+
+        double sum = 0.0;
+        long count = 0;
+
+        for (Evaluation e : evals) {
+            if (e == null || e.getScores() == null) continue;
+            for (EvaluationScore s : e.getScores()) {
+                if (s == null) continue;
+                sum += (double) s.getScore();
+                count++;
+            }
+        }
+        return count == 0 ? 0.0 : (sum / count);
+    }
+
+    /**
+     * Looks up professor name by faculty email. Falls back to email when not found.
+     * Requires ProfessorRepository.findByEmailIgnoreCase(...)
+     */
+    private Map<String, String> resolveProfessorNames(Set<String> normalizedEmails) {
+        Map<String, String> map = new LinkedHashMap<>();
+        for (String email : normalizedEmails) {
+            if (email == null || email.isBlank()) continue;
+
+            Professor p = professorRepository.findByEmailIgnoreCase(email).orElse(null);
+            if (p != null && p.getName() != null && !p.getName().isBlank()) {
+                map.put(email, p.getName());
+            }
+        }
+        return map;
+    }
+
+    private static class TeacherAccumulator {
+        long responses = 0;
+        double sum = 0.0;
+        long count = 0;
+    }
+
+    private static class TeacherRankRow {
+        final String facultyEmail;
+        final String professorName;
+        final long responses;
+        final double avgScore;
+
+        private TeacherRankRow(String facultyEmail, String professorName, long responses, double avgScore) {
+            this.facultyEmail = facultyEmail;
+            this.professorName = professorName;
+            this.responses = responses;
+            this.avgScore = avgScore;
+        }
+    }
+
+    private static class AdminDashboardMetrics {
+        final String sectionLabel;
+        final int submissions;
+        final double avgAllCriteria;
+        final double avgPerEvaluation;
+        final int rankedTeachers;
+        final String bestTeacherName;
+        final double bestTeacherScore;
+        final List<TeacherRankRow> rankingTop10;
+
+        private AdminDashboardMetrics(String sectionLabel,
+                                      int submissions,
+                                      double avgAllCriteria,
+                                      double avgPerEvaluation,
+                                      int rankedTeachers,
+                                      String bestTeacherName,
+                                      double bestTeacherScore,
+                                      List<TeacherRankRow> rankingTop10) {
+            this.sectionLabel = sectionLabel;
+            this.submissions = submissions;
+            this.avgAllCriteria = avgAllCriteria;
+            this.avgPerEvaluation = avgPerEvaluation;
+            this.rankedTeachers = rankedTeachers;
+            this.bestTeacherName = bestTeacherName;
+            this.bestTeacherScore = bestTeacherScore;
+            this.rankingTop10 = rankingTop10;
+        }
     }
 }
