@@ -52,7 +52,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/evaluations/*/export/pdf").authenticated()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.GET, "/api/evaluations").hasAnyRole("ADMIN", "FACULTY")
-                .requestMatchers(HttpMethod.POST, "/api/evaluations").authenticated()
+                .requestMatchers(HttpMethod.POST, "/api/evaluations").permitAll()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
