@@ -35,12 +35,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String token = authHeader.substring(7);
             
             // 2. Validate Token and Extract Identity
-            String username = authService.validateTokenAndGetUsername(token);
+            AuthService.TokenInfo tokenInfo = authService.validateToken(token);
 
-            if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                // 3. For the demo, we grant ADMIN role if the token is valid (since only admin logs in via password)
+            if (tokenInfo != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                // 3. Grant the user's actual role
                 UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                        username, null, Collections.singletonList(new SimpleGrantedAuthority("ROLE_ADMIN")));
+                        tokenInfo.username(), null, Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + tokenInfo.role())));
 
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authToken);

@@ -19,7 +19,9 @@ import javax.crypto.KeyAgreement;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
-import java.security.*;
+import java.security.KeyFactory;
+import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 import java.util.Arrays;
@@ -34,15 +36,18 @@ public class EvaluationService {
     private final CriterionRepository criterionRepository;
     private final KeyService keyService;
     private final ProfessorService professorService;
+    private final EvaluationConfirmationEmailService confirmationEmailService;
 
     public EvaluationService(EvaluationRepository evaluationRepository,
                              CriterionRepository criterionRepository,
                              KeyService keyService,
-                             ProfessorService professorService) {
+                             ProfessorService professorService,
+                             EvaluationConfirmationEmailService confirmationEmailService) {
         this.evaluationRepository = evaluationRepository;
         this.criterionRepository = criterionRepository;
         this.keyService = keyService;
         this.professorService = professorService;
+        this.confirmationEmailService = confirmationEmailService;
     }
 
     @Transactional
@@ -62,7 +67,7 @@ public class EvaluationService {
             );
         }
 
-        if (!professorService.isFacultyAllowedForSection(req.facultyEmail(), normalizedSection)) {
+        if (!professorService.isFacultyAllowedForSection(normalizedFacultyEmail, normalizedSection)) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Selected faculty member is not assigned to section " + normalizedSection
@@ -93,6 +98,7 @@ public class EvaluationService {
         }
 
         Evaluation saved = evaluationRepository.save(eval);
+        confirmationEmailService.sendSubmissionConfirmation(saved);
         return mapToResponseDTO(saved);
     }
 
@@ -100,9 +106,9 @@ public class EvaluationService {
     public List<EvaluationResponseDTO> getAllEvaluations(String facultyEmail) {
         List<Evaluation> evaluations;
         if (facultyEmail != null && !facultyEmail.isBlank()) {
-            evaluations = evaluationRepository.findByFacultyEmail(facultyEmail.trim());
+            evaluations = evaluationRepository.findByFacultyEmailWithScores(facultyEmail.trim());
         } else {
-            evaluations = evaluationRepository.findAll();
+            evaluations = evaluationRepository.findAllWithScores();
         }
 
         return evaluations.stream()
@@ -112,7 +118,7 @@ public class EvaluationService {
 
     @Transactional(readOnly = true)
     public EvaluationResponseDTO getEvaluationById(Long id) {
-        return evaluationRepository.findById(id)
+        return evaluationRepository.findWithScoresById(id)
                 .map(this::mapToResponseDTO)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Evaluation not found"));
     }

@@ -43,17 +43,19 @@ public class AuthService {
         }
     }
 
+    public record TokenInfo(String username, String role) {}
+
     public String authenticateAdmin(String username, String password) {
         if (adminUsername.equals(username) && adminPassword.equals(password)) {
-            return generateToken(username);
+            return generateToken(username, "ADMIN");
         }
         return null;
     }
 
-    // Task 3: Generate proper JWT instead of hardcoded string
-    private String generateToken(String username) {
+    private String generateToken(String username, String role) {
         return Jwts.builder()
                 .setSubject(username)
+                .claim("role", role)
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + expirationTimeMs))
                 .signWith(signingKey)
@@ -61,14 +63,14 @@ public class AuthService {
     }
 
     // Used by JwtAuthenticationFilter to verify the session
-    public String validateTokenAndGetUsername(String token) {
+    public TokenInfo validateToken(String token) {
         try {
             Claims claims = Jwts.parserBuilder()
                     .setSigningKey(signingKey)
                     .build()
                     .parseClaimsJws(token)
                     .getBody();
-            return claims.getSubject();
+            return new TokenInfo(claims.getSubject(), claims.get("role", String.class));
         } catch (Exception e) {
             return null; // Token is invalid or expired
         }
